@@ -6,6 +6,8 @@ struct buf {
   struct buf *next;
   struct buf *qnext; // disk queue
   uchar data[512];
+  struct buf *bnext;
+  struct buf *bprev;
 };
 #define B_BUSY  0x1  // buffer is locked by some process
 #define B_VALID 0x2  // buffer has been read from disk

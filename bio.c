@@ -36,6 +36,22 @@ struct {
   struct buf head;
 } bcache;
 
+struct buf* anchor_table[HASHSIZE]; /* the table elements */
+
+int newaddition = 0;
+
+uint hash(uint dev, uint sector)
+{
+	uint key = (dev+sector)*(dev+sector+1)+sector;
+	  key = (key << 15) - key - 1;
+	  key = key ^ (key >> 12);
+	  key = key + (key << 2);
+	  key = key ^ (key >> 4);
+	  key = (key + (key << 3)) + (key << 11);
+	  key = key ^ (key >> 16);
+	  return key % HASHSIZE;
+}
+
 void
 binit(void)
 {
@@ -52,6 +68,13 @@ binit(void)
     b->dev = -1;
     bcache.head.next->prev = b;
     bcache.head.next = b;
+    b->bnext = (struct buf*)-1;
+    b->bprev = (struct buf*)-1;
+  }
+
+  int i;
+  for(i=0;i<HASHSIZE;i++) {
+	  anchor_table[i] = (struct buf*)-1;
   }
 }
 
@@ -65,9 +88,15 @@ bget(uint dev, uint sector)
 
   acquire(&bcache.lock);
 
+
+  uint hashval = hash(dev, sector);
+
+//  cprintf("hash index: %d, value: %d\n",hashval,anchor_table[hashval]);
+  if(anchor_table[hashval] != (struct buf*)-1) {
  loop:
   // Try for cached block.
-  for(b = bcache.head.next; b != &bcache.head; b = b->next){
+  for(b = anchor_table[hashval]; b != (struct buf*)-1; b = b->bnext){
+//	  cprintf("in loop, at: %d, prev: %d, next: %d\n",b,b->bprev,b->bnext);
     if(b->dev == dev && b->sector == sector){
       if(!(b->flags & B_BUSY)){
         b->flags |= B_BUSY;
@@ -78,10 +107,19 @@ bget(uint dev, uint sector)
       goto loop;
     }
   }
-
+  }
   // Allocate fresh block.
   for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
+//	  cprintf("allocate fresh block %d\n",b);
     if((b->flags & B_BUSY) == 0){
+//  	  cprintf("allocate fresh block %d inside\n",b);
+  	  if(b->dev != -1) {
+  		  uint hashval2 = hash(b->dev, b->sector);
+  		  if(anchor_table[hashval2] == b) {
+
+  				anchor_table[hashval2] = (struct buf*)-1;
+  		  }
+  	  }
       b->dev = dev;
       b->sector = sector;
       b->flags = B_BUSY;
@@ -123,6 +161,46 @@ brelse(struct buf *b)
 
   acquire(&bcache.lock);
 
+  uint hashval = hash(b->dev, b->sector);
+  if(anchor_table[hashval] == (struct buf*)-1) {
+//	  cprintf("anchor is -1\n");
+	  anchor_table[hashval] = b;
+	  if(b->bprev != (struct buf*)-1)
+	  b->bprev->bnext = b->bnext;
+	  if(b->bnext != (struct buf*)-1)
+	  b->bnext->bprev = b->bprev;
+	  b->bprev = (struct buf*)-1;
+	  b->bnext = (struct buf*)-1;
+  }
+  else if(anchor_table[hashval] != b) {
+//	  cprintf("im here to work on %d\n",b);
+
+	  //close gaps of node before and after the current node.
+	  if((b->bprev != (struct buf*)-1) && (b->bnext != (struct buf*)-1)) {
+		  b->bprev->bnext = b->bnext;
+		  b->bnext->bprev = b->bprev;
+	  }
+	  else if((b->bprev != (struct buf*)-1) && (b->bnext == (struct buf*)-1)) {
+//		  cprintf("%d next is now -1,before it was: %d\n",b->bprev,b->bprev->bnext);
+		  b->bprev->bnext = (struct buf*)-1;
+	  }
+//	  else if((b->bprev == (struct buf*)-1) && (b->bnext != (struct buf*)-1)){
+//		  cprintf("IS IT POSSIBLE????\n\n");
+//	  }
+
+	  //make next the current anchor (put it first)
+	  b->bnext = anchor_table[hashval];
+	  //because it is first, prev is -1.
+	  b->bprev = (struct buf*)-1;
+
+	  //previous of current anchor is b
+	  anchor_table[hashval]->bprev = b;
+
+	  //the new anchor is now b
+	  anchor_table[hashval] = b;
+//	  cprintf("im done, current is %d %d %d, his prev is %d, his next is %d %d\n",b,b->bprev->bnext,b->bnext->bprev,b->bprev,b->bnext);
+  }
+
   b->next->prev = b->prev;
   b->prev->next = b->next;
   b->next = bcache.head.next;
@@ -136,3 +214,30 @@ brelse(struct buf *b)
   release(&bcache.lock);
 }
 
+
+//void *lookup_data(hash_table *hashtable, uint dev, uint sector)
+//{
+//    uint hashval = hash(hashtable, str);
+//    return hash_table.anchor_table[hashval];
+//}
+//
+//int add_data(hash_table_t *hashtable, char *str)
+//{
+//    list_t *new_list;
+//    list_t *current_list;
+//    unsigned int hashval = hash(hashtable, str);
+//
+//    /* Attempt to allocate memory for list */
+//    if ((new_list = malloc(sizeof(list_t))) == NULL) return 1;
+//
+//    /* Does item already exist? */
+//    current_list = lookup_string(hashtable, str);
+//        /* item already exists, don't insert it again. */
+//    if (current_list != NULL) return 2;
+//    /* Insert into list */
+//    new_list->str = strdup(str);
+//    new_list->next = hashtable->table[hashval];
+//    hashtable->table[hashval] = new_list;
+//
+//    return 0;
+//}
