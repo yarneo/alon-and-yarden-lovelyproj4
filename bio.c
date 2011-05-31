@@ -55,10 +55,10 @@ uint hash(uint dev, uint sector)
 int
 countblocks(uint inum, struct buf* tmpbuf)
 {
+
 	struct buf *b;
-	struct buf *head;
+	struct buf *head = 0;
 	int count=0;
-        head=0;
 
 	acquire(&bcache.lock);
 
@@ -113,11 +113,21 @@ binit(void)
 static struct buf*
 bget(uint dev, uint sector, uint inodenum)
 {
+
 	struct buf *b;
+
+
+
 	acquire(&bcache.lock);
 
+
+
+	int counter = 0;
+	struct buf* tmpbuf=0;
 	uint hashval = hash(dev, sector);
-	
+
+
+
 	//  cprintf("hash index: %d, value: %d\n",hashval,anchor_table[hashval]);
 	if(anchor_table[hashval] != (struct buf*)-1) {
 		loop:
@@ -137,16 +147,11 @@ bget(uint dev, uint sector, uint inodenum)
 		}
 	}
 	// Allocate fresh block.
-        int counter=0;
-	struct buf* tmpbuf=0;
 	if (SRP >= 3) {
-		cprintf("Before count\n");
 		counter = countblocks(inodenum, tmpbuf);
-		cprintf("After count\n");
 	}
 	if((counter < SRP) || (SRP < 3)) {
-		loop2:
-		for(b = bcache.head.searchprev; b != &bcache.head; b = b->searchprev){
+		for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
 			//	  cprintf("allocate fresh block %d\n",b);
 			if((b->flags & B_BUSY) == 0){
 				//  	  cprintf("allocate fresh block %d inside\n",b);
@@ -165,13 +170,12 @@ bget(uint dev, uint sector, uint inodenum)
 				return b;
 			}
 		}
-		sleep(b, &bcache.lock);
-		goto loop2;
 	} else {
 		//Replace the block of the current inode
 		if(tmpbuf == 0) {
 			panic("Error finding sector of inode");
 		}
+		loop2:
 		for(b = tmpbuf->searchprev; b != tmpbuf; b = b->searchprev){
 			if((b->flags & B_BUSY) == 0){
 				uint hashval2 = hash(b->dev, b->sector);
@@ -187,8 +191,11 @@ bget(uint dev, uint sector, uint inodenum)
 				return b;
 			}
 		}
+		sleep(b, &bcache.lock);
+		goto loop2;
 	}
-        panic("bget: no buffers");
+	panic("bget: no buffers");
+
 }
 
 // Return a B_BUSY buf with the contents of the indicated disk sector.
