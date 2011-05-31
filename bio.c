@@ -119,7 +119,6 @@ bget(uint dev, uint sector, uint inodenum)
       if(!(b->flags & B_BUSY)){
         b->flags |= B_BUSY;
         release(&bcache.lock);
-        b->inum = inodenum;
         return b;
       }
       sleep(b, &bcache.lock);
