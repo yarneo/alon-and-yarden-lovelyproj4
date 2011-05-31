@@ -52,6 +52,24 @@ uint hash(uint dev, uint sector)
 	  return key % HASHSIZE;
 }
 
+int
+countblocks(uint inum)
+{
+  struct buf *b;
+  int count=0;
+  
+  acquire(&bcache.lock);
+
+  for(b = bcache.head.next; b != &bcache.head; b = b->next){
+    if(b->inum == inum) {
+      count++;
+    }
+  }
+
+  release(&bcache.lock);
+  return count;
+}
+
 void
 binit(void)
 {
@@ -82,10 +100,10 @@ binit(void)
 // If not found, allocate fresh block.
 // In either case, return locked buffer.
 static struct buf*
-bget(uint dev, uint sector)
+bget(uint dev, uint sector, uint inodenum)
 {
   struct buf *b;
-
+  
   acquire(&bcache.lock);
 
 
@@ -101,6 +119,7 @@ bget(uint dev, uint sector)
       if(!(b->flags & B_BUSY)){
         b->flags |= B_BUSY;
         release(&bcache.lock);
+        b->inum = inodenum;
         return b;
       }
       sleep(b, &bcache.lock);
@@ -124,6 +143,7 @@ bget(uint dev, uint sector)
       b->sector = sector;
       b->flags = B_BUSY;
       release(&bcache.lock);
+      b->inum = inodenum;
       return b;
     }
   }
@@ -132,11 +152,11 @@ bget(uint dev, uint sector)
 
 // Return a B_BUSY buf with the contents of the indicated disk sector.
 struct buf*
-bread(uint dev, uint sector)
+bread(uint dev, uint sector, uint inodenum)
 {
   struct buf *b;
 
-  b = bget(dev, sector);
+  b = bget(dev, sector, inodenum);
   if(!(b->flags & B_VALID))
     iderw(b);
   return b;
