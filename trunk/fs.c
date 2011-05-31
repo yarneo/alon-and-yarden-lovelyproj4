@@ -30,7 +30,7 @@ readsb(int dev, struct superblock *sb)
 {
   struct buf *bp;
   
-  bp = bread(dev, 1);
+  bp = bread(dev, 1, 0);
   memmove(sb, bp->data, sizeof(*sb));
   brelse(bp);
 }
@@ -41,7 +41,7 @@ bzero(int dev, int bno)
 {
   struct buf *bp;
   
-  bp = bread(dev, bno);
+  bp = bread(dev, bno, 0);
   memset(bp->data, 0, BSIZE);
   bwrite(bp);
   brelse(bp);
@@ -60,7 +60,7 @@ balloc(uint dev)
   bp = 0;
   readsb(dev, &sb);
   for(b = 0; b < sb.size; b += BPB){
-    bp = bread(dev, BBLOCK(b, sb.ninodes));
+    bp = bread(dev, BBLOCK(b, sb.ninodes), 0);
     for(bi = 0; bi < BPB; bi++){
       m = 1 << (bi % 8);
       if((bp->data[bi/8] & m) == 0){  // Is block free?
@@ -86,7 +86,7 @@ bfree(int dev, uint b)
   bzero(dev, b);
 
   readsb(dev, &sb);
-  bp = bread(dev, BBLOCK(b, sb.ninodes));
+  bp = bread(dev, BBLOCK(b, sb.ninodes), 0);
   bi = b % BPB;
   m = 1 << (bi % 8);
   if((bp->data[bi/8] & m) == 0)
@@ -153,7 +153,7 @@ ialloc(uint dev, short type)
 
   readsb(dev, &sb);
   for(inum = 1; inum < sb.ninodes; inum++){  // loop over inode blocks
-    bp = bread(dev, IBLOCK(inum));
+    bp = bread(dev, IBLOCK(inum), inum);
     dip = (struct dinode*)bp->data + inum%IPB;
     if(dip->type == 0){  // a free inode
       memset(dip, 0, sizeof(*dip));
@@ -174,7 +174,7 @@ iupdate(struct inode *ip)
   struct buf *bp;
   struct dinode *dip;
 
-  bp = bread(ip->dev, IBLOCK(ip->inum));
+  bp = bread(ip->dev, IBLOCK(ip->inum), ip->inum);
   dip = (struct dinode*)bp->data + ip->inum%IPB;
   dip->type = ip->type;
   dip->major = ip->major;
@@ -249,7 +249,7 @@ ilock(struct inode *ip)
   release(&icache.lock);
 
   if(!(ip->flags & I_VALID)){
-    bp = bread(ip->dev, IBLOCK(ip->inum));
+    bp = bread(ip->dev, IBLOCK(ip->inum), ip->inum);
     dip = (struct dinode*)bp->data + ip->inum%IPB;
     ip->type = dip->type;
     ip->major = dip->major;
@@ -333,7 +333,7 @@ bmap(struct inode *ip, uint bn)
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0)
       ip->addrs[NDIRECT] = addr = balloc(ip->dev);
-    bp = bread(ip->dev, addr);
+    bp = bread(ip->dev, addr, ip->inum);
     a = (uint*)bp->data;
     if((addr = a[bn]) == 0){
       a[bn] = addr = balloc(ip->dev);
@@ -364,7 +364,7 @@ itrunc(struct inode *ip)
   }
   
   if(ip->addrs[NDIRECT]){
-    bp = bread(ip->dev, ip->addrs[NDIRECT]);
+    bp = bread(ip->dev, ip->addrs[NDIRECT], ip->inum);
     a = (uint*)bp->data;
     for(j = 0; j < NINDIRECT; j++){
       if(a[j])
@@ -409,7 +409,7 @@ readi(struct inode *ip, char *dst, uint off, uint n)
     n = ip->size - off;
 
   for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
+    bp = bread(ip->dev, bmap(ip, off/BSIZE), ip->inum);
     m = min(n - tot, BSIZE - off%BSIZE);
     memmove(dst, bp->data + off%BSIZE, m);
     brelse(bp);
@@ -436,7 +436,7 @@ writei(struct inode *ip, char *src, uint off, uint n)
     n = MAXFILE*BSIZE - off;
 
   for(tot=0; tot<n; tot+=m, off+=m, src+=m){
-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
+    bp = bread(ip->dev, bmap(ip, off/BSIZE), ip->inum);
     m = min(n - tot, BSIZE - off%BSIZE);
     memmove(bp->data + off%BSIZE, src, m);
     bwrite(bp);
@@ -472,7 +472,7 @@ dirlookup(struct inode *dp, char *name, uint *poff)
     panic("dirlookup not DIR");
 
   for(off = 0; off < dp->size; off += BSIZE){
-    bp = bread(dp->dev, bmap(dp, off / BSIZE));
+    bp = bread(dp->dev, bmap(dp, off / BSIZE), dp->inum);
     for(de = (struct dirent*)bp->data;
         de < (struct dirent*)(bp->data + BSIZE);
         de++){
