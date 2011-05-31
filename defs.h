@@ -9,7 +9,7 @@ struct stat;
 
 // bio.c
 void            binit(void);
-struct buf*     bread(uint, uint);
+struct buf*     bread(uint, uint, uint);
 void            brelse(struct buf*);
 void            bwrite(struct buf*);
 
