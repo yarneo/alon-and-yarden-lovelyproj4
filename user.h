@@ -22,6 +22,7 @@ int getpid();
 char* sbrk(int);
 int sleep(int);
 int uptime();
+int rename(char*, char*, char*);
 
 // ulib.c
 int stat(char*, struct stat*);
