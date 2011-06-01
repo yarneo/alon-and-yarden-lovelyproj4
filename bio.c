@@ -52,32 +52,53 @@ uint hash(uint dev, uint sector)
 	return key % HASHSIZE;
 }
 
+void printcache(void) {
+	//BC = [<d#,s#,i#> ,  <d#,s#,i#>, <d#,s#,i#> , <d#,s#,i#> É. <d#,s#,i#>]
+
+	struct buf* b;
+
+	cprintf("BC = [");
+	for(b = bcache.head.next; b != &bcache.head; b = b->next){
+		if(b == bcache.head.prev) {
+			if(b->inum == 0 && b->dev != -1)
+				cprintf("<%d,K,K>",b->dev);
+			else
+				cprintf("<%d,%d,%d>",b->dev,b->sector,b->inum);
+		}
+		else {
+			if(b->inum == 0 && b->dev != -1)
+				cprintf("<%d,K,K> , ",b->dev);
+			else
+				cprintf("<%d,%d,%d> , ",b->dev,b->sector,b->inum);
+		}
+	}
+	cprintf("]\n");
+}
+
 int
-countblocks(uint inum, struct buf* tmpbuf)
+countblocks(uint dev, uint inum, struct buf** tmpbuf)
 {
 
 	struct buf *b;
 	struct buf *head = 0;
 	int count=0;
 
-	acquire(&bcache.lock);
 
 	for(b = bcache.head.next; b != &bcache.head; b = b->next){
-		if(b->inum == inum) {
+		if((b->dev == dev) && (b->inum == inum)) {
 			count++;
 			if (count == 1) {
-				head = tmpbuf;
+				head = b;
+				*tmpbuf = b;
 			}
-			tmpbuf->searchnext = b;
-			b->searchprev = tmpbuf;
-			tmpbuf = b;
+			b->searchprev = *tmpbuf;
+			*tmpbuf = b;
 		}
 	}
 
-	release(&bcache.lock);
-	head->searchprev = tmpbuf;
-	tmpbuf->searchnext = head;
-	tmpbuf = head;
+	head->searchprev = *tmpbuf;
+	*tmpbuf = head;
+	//cprintf("device: %d, inode: %d, tmpbuf: %d count: %d\n",dev,inum,*tmpbuf,count);
 	return count;
 }
 
@@ -97,13 +118,15 @@ binit(void)
 		b->dev = -1;
 		bcache.head.next->prev = b;
 		bcache.head.next = b;
-		b->bnext = (struct buf*)-1;
-		b->bprev = (struct buf*)-1;
+		b->bnext = 0;
+		b->bprev = 0;
+		b->searchnext = 0;
+		b->searchprev = 0;
 	}
 
 	int i;
 	for(i=0;i<HASHSIZE;i++) {
-		anchor_table[i] = (struct buf*)-1;
+		anchor_table[i] = 0;
 	}
 }
 
@@ -115,30 +138,20 @@ bget(uint dev, uint sector, uint inodenum)
 {
 
 	struct buf *b;
-
-
-
 	acquire(&bcache.lock);
-
-
-
 	int counter = 0;
 	struct buf* tmpbuf=0;
 	uint hashval = hash(dev, sector);
 
-
-
-	//  cprintf("hash index: %d, value: %d\n",hashval,anchor_table[hashval]);
-	if(anchor_table[hashval] != (struct buf*)-1) {
+	if(anchor_table[hashval] != 0) {
 		loop:
 		// Try for cached block.
-		for(b = anchor_table[hashval]; b != (struct buf*)-1; b = b->bnext){
+		for(b = anchor_table[hashval]; b != 0; b = b->bnext){
 			//	  cprintf("in loop, at: %d, prev: %d, next: %d\n",b,b->bprev,b->bnext);
 			if(b->dev == dev && b->sector == sector){
 				if(!(b->flags & B_BUSY)){
 					b->flags |= B_BUSY;
 					release(&bcache.lock);
-					b->inum = inodenum;
 					return b;
 				}
 				sleep(b, &bcache.lock);
@@ -147,51 +160,59 @@ bget(uint dev, uint sector, uint inodenum)
 		}
 	}
 	// Allocate fresh block.
-	if (SRP >= 3) {
-		counter = countblocks(inodenum, tmpbuf);
+	if ((SRP >= 3) && (inodenum != 0)) {
+		counter = countblocks(dev, inodenum, &tmpbuf);
+		//cprintf("tmpbuf from bget: %d\n",tmpbuf);
 	}
-	if((counter < SRP) || (SRP < 3)) {
+	if((counter < SRP) || (SRP < 3) || (inodenum == 0)) {
 		for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
-			//	  cprintf("allocate fresh block %d\n",b);
+			//cprintf("allocate fresh block %d\n",b);
 			if((b->flags & B_BUSY) == 0){
-				//  	  cprintf("allocate fresh block %d inside\n",b);
+				//cprintf("allocate fresh block %d inside\n",b);
 				if(b->dev != -1) {
 					uint hashval2 = hash(b->dev, b->sector);
 					if(anchor_table[hashval2] == b) {
-
-						anchor_table[hashval2] = (struct buf*)-1;
+						anchor_table[hashval2] = 0;
 					}
 				}
 				b->dev = dev;
 				b->sector = sector;
 				b->flags = B_BUSY;
 				b->inum = inodenum;
+#ifdef TRUE
+				printcache();
+#endif
 				release(&bcache.lock);
 				return b;
 			}
 		}
-	} else {
+	}
+	else {
 		//Replace the block of the current inode
 		if(tmpbuf == 0) {
-			panic("Error finding sector of inode");
+			panic("Error finding block of inode");
 		}
 		loop2:
-		for(b = tmpbuf->searchprev; b != tmpbuf; b = b->searchprev){
+		for(b = tmpbuf->searchprev; ;b = b->searchprev){
 			if((b->flags & B_BUSY) == 0){
 				uint hashval2 = hash(b->dev, b->sector);
 				if(anchor_table[hashval2] == b) {
-
-					anchor_table[hashval2] = (struct buf*)-1;
+					anchor_table[hashval2] = 0;
 				}
 				b->dev = dev;
 				b->sector = sector;
 				b->flags = B_BUSY;
 				b->inum = inodenum;
+#ifdef TRUE
+				printcache();
+#endif
 				release(&bcache.lock);
 				return b;
 			}
+			if(b == tmpbuf)
+				break;
 		}
-		sleep(b, &bcache.lock);
+		sleep(tmpbuf, &bcache.lock);
 		goto loop2;
 	}
 	panic("bget: no buffers");
@@ -230,36 +251,32 @@ brelse(struct buf *b)
 	acquire(&bcache.lock);
 
 	uint hashval = hash(b->dev, b->sector);
-	if(anchor_table[hashval] == (struct buf*)-1) {
+	if(anchor_table[hashval] == 0) {
 		//	  cprintf("anchor is -1\n");
 		anchor_table[hashval] = b;
-		if(b->bprev != (struct buf*)-1)
+		if(b->bprev != 0)
 			b->bprev->bnext = b->bnext;
-		if(b->bnext != (struct buf*)-1)
+		if(b->bnext != 0)
 			b->bnext->bprev = b->bprev;
-		b->bprev = (struct buf*)-1;
-		b->bnext = (struct buf*)-1;
+		b->bprev = 0;
+		b->bnext = 0;
 	}
 	else if(anchor_table[hashval] != b) {
 		//	  cprintf("im here to work on %d\n",b);
 
 		//close gaps of node before and after the current node.
-		if((b->bprev != (struct buf*)-1) && (b->bnext != (struct buf*)-1)) {
+		if((b->bprev != 0) && (b->bnext != 0)) {
 			b->bprev->bnext = b->bnext;
 			b->bnext->bprev = b->bprev;
 		}
-		else if((b->bprev != (struct buf*)-1) && (b->bnext == (struct buf*)-1)) {
-			//		  cprintf("%d next is now -1,before it was: %d\n",b->bprev,b->bprev->bnext);
-			b->bprev->bnext = (struct buf*)-1;
+		else if((b->bprev != 0) && (b->bnext == 0)) {
+			b->bprev->bnext = 0;
 		}
-		//	  else if((b->bprev == (struct buf*)-1) && (b->bnext != (struct buf*)-1)){
-		//		  cprintf("IS IT POSSIBLE????\n\n");
-		//	  }
 
 		//make next the current anchor (put it first)
 		b->bnext = anchor_table[hashval];
 		//because it is first, prev is -1.
-		b->bprev = (struct buf*)-1;
+		b->bprev = 0;
 
 		//previous of current anchor is b
 		anchor_table[hashval]->bprev = b;
@@ -281,31 +298,3 @@ brelse(struct buf *b)
 
 	release(&bcache.lock);
 }
-
-
-//void *lookup_data(hash_table *hashtable, uint dev, uint sector)
-//{
-//    uint hashval = hash(hashtable, str);
-//    return hash_table.anchor_table[hashval];
-//}
-//
-//int add_data(hash_table_t *hashtable, char *str)
-//{
-//    list_t *new_list;
-//    list_t *current_list;
-//    unsigned int hashval = hash(hashtable, str);
-//
-//    /* Attempt to allocate memory for list */
-//    if ((new_list = malloc(sizeof(list_t))) == NULL) return 1;
-//
-//    /* Does item already exist? */
-//    current_list = lookup_string(hashtable, str);
-//        /* item already exists, don't insert it again. */
-//    if (current_list != NULL) return 2;
-//    /* Insert into list */
-//    new_list->str = strdup(str);
-//    new_list->next = hashtable->table[hashval];
-//    hashtable->table[hashval] = new_list;
-//
-//    return 0;
-//}
