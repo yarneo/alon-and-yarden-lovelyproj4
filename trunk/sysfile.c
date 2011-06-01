@@ -389,3 +389,79 @@ sys_pipe(void)
   fd[1] = fd1;
   return 0;
 }
+
+int
+strcmp(const char *p, const char *q)
+{
+  while(*p && *p == *q)
+    p++, q++;
+  return (uchar)*p - (uchar)*q;
+}
+
+//Rename file system call
+int
+sys_rename(void)
+{
+  char *path, *oldname, *newname;
+  uint off;
+  struct inode *ip, *dp;
+  char name[DIRSIZ];
+  int off2, i, offsettowrite;
+  struct dirent *de=0;
+  struct dirent oldf;
+  int newfileexists=0;
+  int oldfileexists=0;
+
+  offsettowrite = 0;
+  //Reading the args
+  if(argstr(0, &path) < 0 || argstr(1, &oldname) < 0 || argstr(2, &newname) < 0) {
+    return -1;
+  }
+
+  //Getting the inode of the parent directory
+  if((dp = nameiparent(path, name)) == 0)
+    return 0;
+  ilock(dp);
+
+  if((ip = dirlookup(dp, name, &off)) != 0){
+    iunlockput(dp);
+    ilock(ip);
+
+    //Searching the directory for newfile and oldfile. dirent by dirent.
+    for(off2=2*sizeof(*de); off2<ip->size; off2+=sizeof(*de)){
+      if(readi(ip, (char*)de, off2, sizeof(*de)) != sizeof(*de))
+      panic("isdirempty: readi");
+      if(strcmp(de->name, oldname) == 0) {
+        oldfileexists=1;
+	oldf=*de;
+	offsettowrite = off2;
+      }
+      if(strcmp(de->name, newname) == 0) {
+        newfileexists=1;
+      }
+    }
+    if(oldfileexists == 0) {
+      //Source file is not in the directory
+      iunlockput(ip);
+      return -1;
+    }
+    if(newfileexists == 1) {
+      //Target file is already exist in the directory
+      iunlockput(ip);
+      return -2;
+    }
+    for(i=0; i<DIRSIZ; i++) {
+      oldf.name[i] = 0;
+    }
+    //Updating the diren name and then writing it back
+    for(i=0; i<DIRSIZ && i<strlen(newname); i++) {
+      oldf.name[i] = newname[i];
+    }
+    if(writei(ip, (char*)&oldf, offsettowrite, sizeof(oldf)) != sizeof(oldf))
+    panic("unlink: writei");
+    iunlockput(ip);
+    return 0;
+  }
+  iunlockput(ip);
+  return -1;
+}
