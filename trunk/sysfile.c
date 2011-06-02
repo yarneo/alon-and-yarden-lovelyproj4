@@ -420,7 +420,7 @@ sys_rename(void)
 
   //Getting the inode of the parent directory
   if((dp = nameiparent(path, name)) == 0)
-    return 0;
+    return -1;
   ilock(dp);
 
   if((ip = dirlookup(dp, name, &off)) != 0){
