@@ -14,7 +14,7 @@ main(int argint, char *args[])
 	}
 	char abuf[6];
 	while((n = read(fda, abuf, sizeof(abuf))) > 0)
-	write(1, abuf, n);
+	//write(1, abuf, n);
 	close(fda);
 	if ((fdb = open("b.txt",O_RDWR)) == -1) {
 		printf(1,"Error opening b.txt\n");
@@ -22,7 +22,7 @@ main(int argint, char *args[])
 	}
 	char bbuf[600];
 	while((n = read(fdb, bbuf, sizeof(bbuf))) > 0)
-	write(1, bbuf, n);
+	//write(1, bbuf, n);
 	close(fdb);
 	if ((fdc = open("c.txt",O_RDWR)) == -1) {
 		printf(1,"Error opening c.txt\n");
@@ -30,7 +30,7 @@ main(int argint, char *args[])
 	}
 	char cbuf[6000];
 	while((n = read(fdc, cbuf, sizeof(cbuf))) > 0)
-	write(1, cbuf, n);
+	//write(1, cbuf, n);
 	close(fdc);
 	exit();
 }

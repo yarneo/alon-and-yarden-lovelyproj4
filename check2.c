@@ -36,7 +36,7 @@ main(int argint, char *args[])
 	while(finisha == 0 || finishb == 0 || finishc ==0) {
 		if(finisha == 0) {
 			n = read(fda, buf, bytes_num);
-			write(1, buf, n);
+			//write(1, buf, n);
 			if (n == 0) {
 				finisha = 1;
 				close(fda);
@@ -44,7 +44,7 @@ main(int argint, char *args[])
 		}
 		if(finishb == 0) {
 			n = read(fdb, buf, bytes_num);
-			write(1, buf, n);
+			//write(1, buf, n);
 			if (n == 0) {
 				finishb = 1;
 				close(fdb);
@@ -52,7 +52,7 @@ main(int argint, char *args[])
 		}
 		if(finishc == 0) {
 			n = read(fdc, buf, bytes_num);
-			write(1, buf, n);
+			//write(1, buf, n);
 			if (n == 0) {
 				finishc = 1;
 				close(fdc);
