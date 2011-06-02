@@ -150,7 +150,6 @@ binit(void)
 		bcache.head.next = b;
 		b->bnext = 0;
 		b->bprev = 0;
-		b->searchnext = 0;
 	}
 
 	int i;
