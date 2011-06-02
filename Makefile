@@ -152,8 +152,8 @@ UPROGS=\
 	_check1\
 	_check2\
 
-fs.img: mkfs README $(UPROGS)
-	./mkfs fs.img README $(UPROGS)
+fs.img: mkfs a.txt b.txt c.txt $(UPROGS)
+	./mkfs fs.img a.txt b.txt c.txt $(UPROGS)
 
 -include *.d
 

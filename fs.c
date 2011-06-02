@@ -153,7 +153,7 @@ ialloc(uint dev, short type)
 
   readsb(dev, &sb);
   for(inum = 1; inum < sb.ninodes; inum++){  // loop over inode blocks
-    bp = bread(dev, IBLOCK(inum), inum);
+    bp = bread(dev, IBLOCK(inum), 0);
     dip = (struct dinode*)bp->data + inum%IPB;
     if(dip->type == 0){  // a free inode
       memset(dip, 0, sizeof(*dip));

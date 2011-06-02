@@ -38,18 +38,57 @@ struct {
 
 struct buf* anchor_table[HASHSIZE]; /* the table elements */
 
-int newaddition = 0;
-
 uint hash(uint dev, uint sector)
 {
-	uint key = (dev+sector)*(dev+sector+1)+sector;
-	key = (key << 15) - key - 1;
-	key = key ^ (key >> 12);
-	key = key + (key << 2);
-	key = key ^ (key >> 4);
-	key = (key + (key << 3)) + (key << 11);
-	key = key ^ (key >> 16);
-	return key % HASHSIZE;
+//	uint key = (dev+sector)*(dev+sector+1)+sector;
+//	key = (key << 15) - key - 1;
+//	key = key ^ (key >> 12);
+//	key = key + (key << 2);
+//	key = key ^ (key >> 4);
+//	key = (key + (key << 3)) + (key << 11);
+//	key = key ^ (key >> 16);
+//	return key % HASHSIZE;
+	return (dev + sector) % HASHSIZE;
+}
+
+void beforeupdate(struct buf* b) {
+//	cprintf("--------- prev %d next %d\n",b->bprev,b->bnext);
+	uint hashval = hash(b->dev, b->sector);
+	if((anchor_table[hashval] == b) && (b->bnext != 0)) {
+//		cprintf("first\n");
+		anchor_table[hashval] = b->bnext;
+		b->bnext->bprev = 0;
+		b->bnext = 0;
+	}
+	else if(anchor_table[hashval] == b) {
+//		cprintf("second\n");
+		anchor_table[hashval] = 0;
+	}
+	else {
+//		cprintf("third\n");
+		if(b->bprev != 0) {
+			b->bprev->bnext = b->bnext;
+		}
+		if(b->bnext != 0) {
+//			cprintf("YOU DID IT!! before prev: %d, new prev: %d\n",b->bnext->bprev,b->bprev);
+			b->bnext->bprev = b->bprev;
+		}
+		b->bprev = 0;
+		b->bnext = 0;
+	}
+}
+
+void afterupdate(struct buf* b) {
+	uint hashval = hash(b->dev, b->sector);
+	if(anchor_table[hashval] == 0) {
+		anchor_table[hashval] = b;
+	}
+	else {
+		b->bnext = anchor_table[hashval];
+		anchor_table[hashval]->bprev = b;
+		anchor_table[hashval] = b;
+	}
+
 }
 
 void printcache(void) {
@@ -76,28 +115,19 @@ void printcache(void) {
 }
 
 int
-countblocks(uint dev, uint inum, struct buf** tmpbuf)
+countblocks(uint dev, uint inum)
 {
 
 	struct buf *b;
-	struct buf *head = 0;
+//	struct buf *temp = 0;
 	int count=0;
 
 
-	for(b = bcache.head.next; b != &bcache.head; b = b->next){
+	for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
 		if((b->dev == dev) && (b->inum == inum)) {
 			count++;
-			if (count == 1) {
-				head = b;
-				*tmpbuf = b;
-			}
-			b->searchprev = *tmpbuf;
-			*tmpbuf = b;
 		}
 	}
-
-	head->searchprev = *tmpbuf;
-	*tmpbuf = head;
 	//cprintf("device: %d, inode: %d, tmpbuf: %d count: %d\n",dev,inum,*tmpbuf,count);
 	return count;
 }
@@ -121,7 +151,6 @@ binit(void)
 		b->bnext = 0;
 		b->bprev = 0;
 		b->searchnext = 0;
-		b->searchprev = 0;
 	}
 
 	int i;
@@ -139,10 +168,11 @@ bget(uint dev, uint sector, uint inodenum)
 
 	struct buf *b;
 	acquire(&bcache.lock);
-	int counter = 0;
 	struct buf* tmpbuf=0;
+	int first;
+	int counter = 0;
 	uint hashval = hash(dev, sector);
-
+//	cprintf("IM LOOKING FOR: %d, %d, %d\n",dev,sector,inodenum);
 	if(anchor_table[hashval] != 0) {
 		loop:
 		// Try for cached block.
@@ -161,24 +191,25 @@ bget(uint dev, uint sector, uint inodenum)
 	}
 	// Allocate fresh block.
 	if ((SRP >= 3) && (inodenum != 0)) {
-		counter = countblocks(dev, inodenum, &tmpbuf);
-		//cprintf("tmpbuf from bget: %d\n",tmpbuf);
+		counter = countblocks(dev, inodenum);
+//		cprintf("counter linked list:");
+//		for(b = tmpbuf; b != 0 ;b = b->searchnext){
+//			cprintf("%d ",b);
+//		}
+//		cprintf("\n");
+
 	}
 	if((counter < SRP) || (SRP < 3) || (inodenum == 0)) {
 		for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
-			//cprintf("allocate fresh block %d\n",b);
 			if((b->flags & B_BUSY) == 0){
-				//cprintf("allocate fresh block %d inside\n",b);
-				if(b->dev != -1) {
-					uint hashval2 = hash(b->dev, b->sector);
-					if(anchor_table[hashval2] == b) {
-						anchor_table[hashval2] = 0;
-					}
-				}
+//				cprintf("%d NORMAL OLD: d: %d, s: %d, inum: %d - NEW: d: %d, s: %d, inum: %d\n",b,b->dev,b->sector,b->inum,dev,sector,inodenum);
+				if(b->dev != -1)
+					beforeupdate(b);
 				b->dev = dev;
 				b->sector = sector;
 				b->flags = B_BUSY;
 				b->inum = inodenum;
+				afterupdate(b);
 #ifdef TRUE
 				printcache();
 #endif
@@ -189,28 +220,29 @@ bget(uint dev, uint sector, uint inodenum)
 	}
 	else {
 		//Replace the block of the current inode
-		if(tmpbuf == 0) {
-			panic("Error finding block of inode");
-		}
 		loop2:
-		for(b = tmpbuf->searchprev; ;b = b->searchprev){
-			if((b->flags & B_BUSY) == 0){
-				uint hashval2 = hash(b->dev, b->sector);
-				if(anchor_table[hashval2] == b) {
-					anchor_table[hashval2] = 0;
+		first = 1;
+		for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
+			if((b->dev == dev) && (b->inum == inodenum)) {
+				if(first) {
+				tmpbuf = b;
+				first = 0;
 				}
+			if((b->flags & B_BUSY) == 0){
+//				cprintf("%d OLD: d: %d, s: %d, inum: %d - NEW: d: %d, s: %d, inum: %d\n",b,b->dev,b->sector,b->inum,dev,sector,inodenum);
+				beforeupdate(b);
 				b->dev = dev;
 				b->sector = sector;
 				b->flags = B_BUSY;
 				b->inum = inodenum;
+				afterupdate(b);
 #ifdef TRUE
 				printcache();
 #endif
 				release(&bcache.lock);
 				return b;
 			}
-			if(b == tmpbuf)
-				break;
+			}
 		}
 		sleep(tmpbuf, &bcache.lock);
 		goto loop2;
@@ -250,41 +282,30 @@ brelse(struct buf *b)
 
 	acquire(&bcache.lock);
 
-	uint hashval = hash(b->dev, b->sector);
-	if(anchor_table[hashval] == 0) {
-		//	  cprintf("anchor is -1\n");
-		anchor_table[hashval] = b;
-		if(b->bprev != 0)
-			b->bprev->bnext = b->bnext;
-		if(b->bnext != 0)
-			b->bnext->bprev = b->bprev;
-		b->bprev = 0;
-		b->bnext = 0;
-	}
-	else if(anchor_table[hashval] != b) {
-		//	  cprintf("im here to work on %d\n",b);
-
-		//close gaps of node before and after the current node.
-		if((b->bprev != 0) && (b->bnext != 0)) {
-			b->bprev->bnext = b->bnext;
-			b->bnext->bprev = b->bprev;
+	int i=0;
+	struct buf* d;
+	for(i=0;i<HASHSIZE;i++) {
+		if(anchor_table[i] == 0) {
+//			cprintf("BUCKET %d IS 0\n",i);
 		}
-		else if((b->bprev != 0) && (b->bnext == 0)) {
-			b->bprev->bnext = 0;
+		else {
+//			cprintf("BUCKET %d: ",i);
+			for(d = anchor_table[i]; d != 0; d = d->bnext){
+				if(d->bnext != 0) {
+//				if(d->bnext->bprev != d)
+//					cprintf("ERROR ERRORRRRRRR");
+				}
+				if(d->bprev != 0) {
+//				if(d->bprev->bnext != d)
+//					cprintf("ERROR ERRORRRRRRR");
+				}
+//				cprintf("prev: %d, current: %d, next: %d :::",d->bprev,d,d->bnext);
+			}
+//			cprintf("\n");
 		}
-
-		//make next the current anchor (put it first)
-		b->bnext = anchor_table[hashval];
-		//because it is first, prev is -1.
-		b->bprev = 0;
-
-		//previous of current anchor is b
-		anchor_table[hashval]->bprev = b;
-
-		//the new anchor is now b
-		anchor_table[hashval] = b;
-		//	  cprintf("im done, current is %d %d %d, his prev is %d, his next is %d %d\n",b,b->bprev->bnext,b->bnext->bprev,b->bprev,b->bnext);
 	}
+//	cprintf("\n");
+
 
 	b->next->prev = b->prev;
 	b->prev->next = b->next;

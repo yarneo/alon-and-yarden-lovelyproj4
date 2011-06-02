@@ -8,8 +8,6 @@ struct buf {
   uchar data[512];
   struct buf *bnext;
   struct buf *bprev;
-  struct buf *searchnext;
-  struct buf *searchprev;
   uint inum;          // Inode number that holds the buf
 };
 #define B_BUSY  0x1  // buffer is locked by some process
