@@ -9,4 +9,4 @@
 #define ROOTDEV       1  // device number of file system root disk
 #define PHYSTOP  0x1000000 // use phys mem up to here as free pool
 #define HASHSIZE	  10
-#define SRP 		  4
+#define SRP 		  5
