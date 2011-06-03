@@ -417,7 +417,6 @@ sys_rename(void)
   if(argstr(0, &path) < 0 || argstr(1, &oldname) < 0 || argstr(2, &newname) < 0) {
     return -1;
   }
-
   //Getting the inode of the parent directory
   if((dp = nameiparent(path, name)) == 0)
     return -1;
@@ -462,6 +461,6 @@ sys_rename(void)
     iunlockput(ip);
     return 0;
   }
-  iunlockput(ip);
+  iunlockput(dp);
   return -1;
 }
