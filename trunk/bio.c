@@ -159,8 +159,6 @@ bget(uint dev, uint sector, uint inodenum)
 
 	struct buf *b;
 	acquire(&bcache.lock);
-	struct buf* tmpbuf=0;
-	int first;
 	int counter = 0;
 	uint hashval = hash(dev, sector);
 	if(anchor_table[hashval] != 0) {
@@ -202,31 +200,23 @@ bget(uint dev, uint sector, uint inodenum)
 	}
 	else {
 		//Replace the block of the current inode
-		loop2:
-		first = 1;
 		for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
 			if((b->dev == dev) && (b->inum == inodenum)) {
-				if(first) {
-				tmpbuf = b;
-				first = 0;
-				}
-			if((b->flags & B_BUSY) == 0){
-				beforeupdate(b);
-				b->dev = dev;
-				b->sector = sector;
-				b->flags = B_BUSY;
-				b->inum = inodenum;
-				afterupdate(b);
+				if((b->flags & B_BUSY) == 0){
+					beforeupdate(b);
+					b->dev = dev;
+					b->sector = sector;
+					b->flags = B_BUSY;
+					b->inum = inodenum;
+					afterupdate(b);
 #ifdef TRUE
-				printcache();
+					printcache();
 #endif
-				release(&bcache.lock);
-				return b;
-			}
+					release(&bcache.lock);
+					return b;
+				}
 			}
 		}
-		sleep(tmpbuf, &bcache.lock);
-		goto loop2;
 	}
 	panic("bget: no buffers");
 
